@@ -5,7 +5,8 @@
 #
 # Normal rules
 #
-
+check_in.sh
+make.sh
 *.rej
 *.orig
 *.a

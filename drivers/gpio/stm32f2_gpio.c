@@ -1,7 +1,8 @@
 /*
- * (C) Copyright 2011
+ * (C) Copyright 2011-2015
  *
  * Yuri Tikhonov, Emcraft Systems, yur@emcraft.com
+ * Alexander Potashev, Emcraft Systems, aspotashev@emcraft.com
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -44,6 +45,8 @@ DECLARE_GLOBAL_DATA_PTR;
 #define STM32F2_GPIOG_BASE	(STM32_AHB1PERIPH_BASE + 0x1800)
 #define STM32F2_GPIOH_BASE	(STM32_AHB1PERIPH_BASE + 0x1C00)
 #define STM32F2_GPIOI_BASE	(STM32_AHB1PERIPH_BASE + 0x2000)
+#define STM32F4_GPIOJ_BASE	(STM32_AHB1PERIPH_BASE + 0x2400)
+#define STM32F4_GPIOK_BASE	(STM32_AHB1PERIPH_BASE + 0x2800)
 
 /*
  * GPIO configuration mode
@@ -99,6 +102,14 @@ DECLARE_GLOBAL_DATA_PTR;
 #define STM32F2_GPIO_AF_FSMC	0x0C
 
 /*
+ * LTDC AF
+ */
+#define STM32F2_GPIO_AF_LTDC   0x0E
+
+#define STM32F2_GPIO_AF_QSPI9	0x09
+#define STM32F2_GPIO_AF_QSPI10	0x0A
+
+/*
  * GPIO register map
  */
 struct stm32f2_gpio_regs {
@@ -119,7 +130,8 @@ struct stm32f2_gpio_regs {
 static const unsigned long io_base[] = {
 	STM32F2_GPIOA_BASE, STM32F2_GPIOB_BASE, STM32F2_GPIOC_BASE,
 	STM32F2_GPIOD_BASE, STM32F2_GPIOE_BASE, STM32F2_GPIOF_BASE,
-	STM32F2_GPIOG_BASE, STM32F2_GPIOH_BASE, STM32F2_GPIOI_BASE
+	STM32F2_GPIOG_BASE, STM32F2_GPIOH_BASE, STM32F2_GPIOI_BASE,
+	STM32F4_GPIOJ_BASE, STM32F4_GPIOK_BASE,
 };
 
 /*
@@ -130,8 +142,13 @@ static const u32 af_val[STM32F2_GPIO_ROLE_LAST] = {
 	STM32F2_GPIO_AF_USART4, STM32F2_GPIO_AF_USART5, STM32F2_GPIO_AF_USART6,
 	STM32F2_GPIO_AF_MAC,
 	(u32)-1,
+	STM32F2_GPIO_AF_LTDC,
 	STM32F2_GPIO_AF_FSMC,
-	(u32)-1
+	(u32)-1,
+	STM32F2_GPIO_AF_QSPI9,	/* STM32F2_GPIO_ROLE_QSPI_AF9 */
+	STM32F2_GPIO_AF_QSPI10,	/* STM32F2_GPIO_ROLE_QSPI_AF10 */
+	STM32F2_GPIO_MODE_IN,
+	STM32F2_GPIO_MODE_IN,
 };
 
 /*
@@ -149,7 +166,7 @@ s32 stm32f2_gpio_config(const struct stm32f2_gpio_dsc *dsc,
 	/*
 	 * Check params
 	 */
-	if (!dsc || dsc->port > 8 || dsc->pin > 15) {
+	if (!dsc || dsc->port >= ARRAY_SIZE(io_base) || dsc->pin > 15) {
 		if (gd->have_console) {
 			printf("%s: incorrect params %d.%d.\n", __func__,
 				dsc ? dsc->port : -1,
@@ -177,6 +194,8 @@ s32 stm32f2_gpio_config(const struct stm32f2_gpio_dsc *dsc,
 	case STM32F2_GPIO_ROLE_ETHERNET:
 	case STM32F2_GPIO_ROLE_MCO:
 	case STM32F2_GPIO_ROLE_FSMC:
+	case STM32F2_GPIO_ROLE_QSPI_AF9:
+	case STM32F2_GPIO_ROLE_QSPI_AF10:
 		otype  = STM32F2_GPIO_OTYPE_PP;
 		ospeed = STM32F2_GPIO_SPEED_100M;
 		pupd   = STM32F2_GPIO_PUPD_NO;
@@ -187,6 +206,24 @@ s32 stm32f2_gpio_config(const struct stm32f2_gpio_dsc *dsc,
 		ospeed = STM32F2_GPIO_SPEED_50M;
 		pupd   = STM32F2_GPIO_PUPD_NO;
 		mode   = STM32F2_GPIO_MODE_OUT;
+		break;
+	case STM32F2_GPIO_ROLE_LTDC:
+		otype  = STM32F2_GPIO_OTYPE_PP;
+		ospeed = STM32F2_GPIO_SPEED_50M;
+		pupd   = STM32F2_GPIO_PUPD_NO;
+		mode   = STM32F2_GPIO_MODE_AF;
+		break;
+	case STM32F2_GPIO_ROLE_GPIN:
+		otype  = STM32F2_GPIO_OTYPE_PP;
+		ospeed = STM32F2_GPIO_SPEED_2M;
+		pupd   = STM32F2_GPIO_PUPD_NO;
+		mode   = STM32F2_GPIO_MODE_IN;
+		break;
+	case STM32F2_GPIO_ROLE_GPIN_PULLUP:
+		otype  = STM32F2_GPIO_OTYPE_PP;
+		ospeed = STM32F2_GPIO_SPEED_2M;
+		pupd   = STM32F2_GPIO_PUPD_UP;
+		mode   = STM32F2_GPIO_MODE_IN;
 		break;
 	default:
 		if (gd->have_console)
@@ -214,6 +251,14 @@ s32 stm32f2_gpio_config(const struct stm32f2_gpio_dsc *dsc,
 		gpio_regs->afr[dsc->pin >> 3] |= af_val[role] << i;
 	}
 
+	i = dsc->pin;
+
+	/*
+	 * Output mode configuration
+	 */
+	gpio_regs->otyper &= ~(0x1 << i);
+	gpio_regs->otyper |= otype << i;
+
 	i = dsc->pin * 2;
 
 	/*
@@ -221,12 +266,6 @@ s32 stm32f2_gpio_config(const struct stm32f2_gpio_dsc *dsc,
 	 */
 	gpio_regs->moder &= ~(0x3 << i);
 	gpio_regs->moder |= mode << i;
-
-	/*
-	 * Output mode configuration
-	 */
-	gpio_regs->otyper &= ~(0x3 << i);
-	gpio_regs->otyper |= otype << i;
 
 	/*
 	 * Speed mode configuration
@@ -254,7 +293,7 @@ s32 stm32f2_gpout_set(const struct stm32f2_gpio_dsc *dsc, int state)
 	volatile struct stm32f2_gpio_regs	*gpio_regs;
 	s32					rv;
 
-	if (!dsc || dsc->port > 8 || dsc->pin > 15) {
+	if (!dsc || dsc->port >= ARRAY_SIZE(io_base) || dsc->pin > 15) {
 		if (gd->have_console) {
 			printf("%s: incorrect params %d.%d.\n", __func__,
 				dsc ? dsc->port : -1,
@@ -276,4 +315,25 @@ s32 stm32f2_gpout_set(const struct stm32f2_gpio_dsc *dsc, int state)
 	rv = 0;
 out:
 	return rv;
+}
+
+int stm32f2_gpout_get(const struct stm32f2_gpio_dsc *dsc)
+{
+	volatile struct stm32f2_gpio_regs *gpio_regs;
+	int state;
+
+	if (!dsc || dsc->port >= ARRAY_SIZE(io_base) || dsc->pin > 15) {
+		if (gd->have_console) {
+			printf("%s: incorrect params %d.%d.\n", __func__,
+				dsc ? dsc->port : -1,
+				dsc ? dsc->pin  : -1);
+		}
+		return -EINVAL;
+	}
+
+	gpio_regs = (struct stm32f2_gpio_regs *)io_base[dsc->port];
+
+	state = !!(gpio_regs->idr & (1 << dsc->pin));
+
+	return state;
 }

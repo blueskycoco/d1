@@ -36,6 +36,7 @@
 #include <lmb.h>
 #include <linux/ctype.h>
 #include <asm/byteorder.h>
+#include <asm/cache.h>
 
 #if defined(CONFIG_CMD_USB)
 #include <usb.h>
@@ -303,7 +304,6 @@ static int bootm_start(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		}
 
 #if defined(CONFIG_OF_LIBFDT)
-#if defined(CONFIG_PPC) || defined(CONFIG_M68K) || defined(CONFIG_SPARC)
 		/* find flattened device tree */
 		ret = boot_get_fdt (flag, argc, argv, &images,
 				    &images.ft_addr, &images.ft_len);
@@ -313,7 +313,6 @@ static int bootm_start(cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 		}
 
 		set_working_fdt_addr(images.ft_addr);
-#endif
 #endif
 	}
 
@@ -433,7 +432,9 @@ static int bootm_load_os(image_info_t os, ulong *load_end, int boot_progress)
 	if (boot_progress)
 		show_boot_progress (7);
 
-	if ((load < blob_end) && (*load_end > blob_start)) {
+	/* Warn about overlap only if we could really corrupt adjacing imgs */
+	if ((load < blob_end) && (*load_end > blob_start) &&
+	    (load < image_start || *load_end > os.image_start + os.image_len)) {
 		debug ("images.os.start = 0x%lX, images.os.end = 0x%lx\n", blob_start, blob_end);
 		debug ("images.os.load = 0x%lx, load_end = 0x%lx\n", load, *load_end);
 
@@ -466,7 +467,7 @@ static int bootm_start_standalone(ulong iflag, int argc, char *argv[])
 cmd_tbl_t cmd_bootm_sub[] = {
 	U_BOOT_CMD_MKENT(start, 0, 1, (void *)BOOTM_STATE_START, "", ""),
 	U_BOOT_CMD_MKENT(loados, 0, 1, (void *)BOOTM_STATE_LOADOS, "", ""),
-#if defined(CONFIG_PPC) || defined(CONFIG_M68K) || defined(CONFIG_SPARC)
+#ifdef CONFIG_SYS_BOOT_RAMDISK_HIGH
 	U_BOOT_CMD_MKENT(ramdisk, 0, 1, (void *)BOOTM_STATE_RAMDISK, "", ""),
 #endif
 #ifdef CONFIG_OF_LIBFDT
@@ -525,7 +526,7 @@ int do_bootm_subcommand (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 			lmb_reserve(&images.lmb, images.os.load,
 					(load_end - images.os.load));
 			break;
-#if defined(CONFIG_PPC) || defined(CONFIG_M68K) || defined(CONFIG_SPARC)
+#ifdef CONFIG_SYS_BOOT_RAMDISK_HIGH
 		case BOOTM_STATE_RAMDISK:
 		{
 			ulong rd_len = images.rd_end - images.rd_start;
@@ -703,6 +704,12 @@ int do_bootm (cmd_tbl_t *cmdtp, int flag, int argc, char *argv[])
 	}
 
 	arch_preboot_os();
+
+#if defined(CONFIG_STM32F7_DCACHE_ON) && defined(CONFIG_STM32F7_ICACHE_ON)
+	stm32f7_cache_sync_range(images.os.load,
+				 images.os.load + images.os.image_len);
+	stm32f7_envm_as_dev();
+#endif
 
 	boot_fn(0, argc, argv, &images);
 

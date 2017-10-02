@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2012,2013
+ * (C) Copyright 2012-2015
  * Emcraft Systems, <www.emcraft.com>
  * Alexander Potashev <aspotashev@emcraft.com>
  * Vladimir Khusainov, <vlad@emcraft.com>
@@ -51,7 +51,7 @@
  * known way (as of yet) to read them in run time. Hence,
  * we define them as build-time constants
  */
-#define CONFIG_SYS_M2S_SYSREF		166000000
+#define CONFIG_SYS_M2S_SYSREF		142000000
 
 /*
  * This is a specific revision of the board
@@ -68,7 +68,8 @@
 #define CONFIG_DISPLAY_CPUINFO		1
 #define CONFIG_DISPLAY_BOARDINFO	1
 
-#define CONFIG_SYS_BOARD_REV_STR	"1A"
+#define CONFIG_SYS_BOARD_NAME		"M2S-FG484-SOM"
+#define CONFIG_SYS_BOARD_REV_STR	"1A, www.emcraft.com"
 
 /*
  * Monitor prompt
@@ -135,6 +136,14 @@
 #define CONFIG_SYS_MALLOC_LEN		CONFIG_MEM_MALLOC_LEN
 
 /*
+ * With Micron 64K sector size, we need more malloc() space for saveenv,
+ * see in common/env_sf.c.
+ * Use 1 MB at the end of the external memory for the malloc() pool
+ */
+#define CONFIG_SYS_MALLOC_EXT_LEN	(1024 * 1024)
+#define CONFIG_SYS_MALLOC_EXT_BASE \
+	(CONFIG_SYS_RAM_BASE + CONFIG_SYS_RAM_SIZE - CONFIG_SYS_MALLOC_EXT_LEN)
+/*
  * Configuration of the external memory
  */
 #define CONFIG_NR_DRAM_BANKS		1
@@ -160,6 +169,7 @@
 
 #define CONFIG_SPI_FLASH		1
 #define CONFIG_SPI_FLASH_SPANSION	1
+#define CONFIG_SPI_FLASH_STMICRO	1
 #define CONFIG_SPI_FLASH_BUS		0
 #define CONFIG_SPI_FLASH_CS		0
 #define CONFIG_SPI_FLASH_MODE		3
@@ -229,7 +239,8 @@
 
 #define CONFIG_SYS_MEMTEST_START	CONFIG_SYS_RAM_BASE
 #define CONFIG_SYS_MEMTEST_END		(CONFIG_SYS_RAM_BASE + \
-					CONFIG_SYS_RAM_SIZE)
+					 CONFIG_SYS_RAM_SIZE - \
+					 CONFIG_SYS_MALLOC_EXT_LEN)
 
 /*
  * Needed by "loadb"
@@ -305,6 +316,7 @@
  */
 #define CONFIG_EXTRA_ENV_SETTINGS				\
 	"loadaddr=" MK_STR(UIMAGE_LOADADDR) "\0"		\
+	"args=setenv bootargs " CONFIG_BOOTARGS "\0"		\
 	"ethaddr=C0:B1:3C:83:83:83\0"				\
 	"ipaddr=172.17.4.219\0"					\
 	"serverip=172.17.0.1\0"					\
@@ -315,10 +327,10 @@
 	"addip=setenv bootargs ${bootargs}"			\
 	" ip=${ipaddr}:${serverip}:${gatewayip}:"		\
 	"${netmask}:${hostname}:eth0:off\0"			\
-	"flashboot=run addip;run spiprobe;"			\
+	"flashboot=run args addip;run spiprobe;"		\
 	" sf read ${loadaddr} ${spiaddr} ${spisize};"		\
 	" bootm ${loadaddr}\0"					\
-	"netboot=tftp ${loadaddr} ${image};run addip;bootm\0"	\
+	"netboot=tftp ${loadaddr} ${image};run args addip;bootm\0"	\
 	"update=tftp ${loadaddr} ${image};run spiprobe;"	\
 	" sf erase ${spiaddr} ${filesize};"			\
 	" sf write ${loadaddr} ${spiaddr} ${filesize};"		\

@@ -1,7 +1,9 @@
 /*
- * (C) Copyright 2011
+ * (C) Copyright 2011, 2015
  *
  * Yuri Tikhonov, Emcraft Systems, yur@emcraft.com
+ * Vladimir Skvortsov, Emcraft Systems, vskvortsov@emcraft.com
+ * Alexander Potashev, Emcraft Systems, aspotashev@emcraft.com
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -29,11 +31,12 @@
  * Peripheral memory map
  ******************************************************************************/
 
-#define STM32_PERIPH_BASE	0x40000000
+#define STM32_PERIPH_BASE	((u32)0x40000000)
 #define STM32_APB1PERIPH_BASE	(STM32_PERIPH_BASE + 0x00000000)
 #define STM32_APB2PERIPH_BASE	(STM32_PERIPH_BASE + 0x00010000)
 #define STM32_AHB1PERIPH_BASE	(STM32_PERIPH_BASE + 0x00020000)
 #define STM32_AHB2PERIPH_BASE	(STM32_PERIPH_BASE + 0x10000000)
+#define STM32_AHB3PERIPH_BASE	(STM32_PERIPH_BASE + 0x60000000)
 
 /******************************************************************************
  * Reset and Clock Control
@@ -73,6 +76,10 @@ struct stm32_rcc_regs {
 	u32	rsv6[2];
 	u32	sscgr;		/* RCC spread spectrum clock generation	      */
 	u32	plli2scfgr;	/* RCC PLLI2S configuration		      */
+
+	/* Only for STM32F4{2,3}xxx and STM32F7 */
+	u32	pllsaicfgr;	/* RCC PLLSAI configuration */
+	u32	dckcfgr;	/* RCC Dedicated Clocks configuration */
 };
 
 /*
@@ -84,6 +91,7 @@ enum clock {
 	CLOCK_PCLK1,		/* PCLK1 clock frequency expressed in Hz      */
 	CLOCK_PCLK2,		/* PCLK2 clock frequency expressed in Hz      */
 	CLOCK_SYSTICK,		/* Systimer clock frequency expressed in Hz   */
+	CLOCK_DIVM,		/* Input clock for PLL, PLLI2S, PLLSAI in Hz */
 	CLOCK_END		/* for internal usage			      */
 };
 
@@ -93,6 +101,26 @@ enum clock {
 #define STM32_RCC_BASE			(STM32_AHB1PERIPH_BASE + 0x3800)
 #define STM32_RCC			((volatile struct stm32_rcc_regs *) \
 					STM32_RCC_BASE)
+/*
+ * PWR registers map
+ */
+struct stm32_pwr_regs {
+	u32 cr1;   /* power control register 1 */
+	u32 csr1;  /* power control/status register 2 */
+	u32 cr2;   /* power control register 2 */
+	u32 csr2;  /* power control/status register 2 */
+};
+
+
+#define STM32_PWR_BASE			(STM32_APB1PERIPH_BASE + 0x7000)
+#define STM32_PWR			((volatile struct stm32_pwr_regs *) \
+					STM32_PWR_BASE)
+
+/*
+ * LTDC registers map
+ */
+#define STM32F4_LTDC_BASE	(STM32_APB2PERIPH_BASE + 0x6800)
+
 
 /******************************************************************************
  * FIXME: get rid of this
@@ -110,5 +138,10 @@ unsigned long  __attribute__((section(".ramcode")))
 	       clock_get(enum clock clck);
 
 #define PAGE_SIZE	4096
+
+#define  RCC_AHB1ENR_DMA1EN	((uint32_t)0x00200000)
+#define  RCC_AHB1ENR_DMA2EN	((uint32_t)0x00400000)
+#define  RCC_APB2ENR_SPI1EN	((uint32_t)0x00001000)
+#define  RCC_AHB3ENR_QSPIEN	((uint32_t)(1 << 1))
 
 #endif /* _MACH_STM32_H_ */

@@ -360,11 +360,40 @@ void do_fixup_by_compat_u32(void *fdt, const char *compat,
 	do_fixup_by_compat(fdt, compat, prop, &val, 4, create);
 }
 
-int fdt_fixup_memory(void *blob, u64 start, u64 size)
+/*
+ * Get cells len in bytes
+ *     if #NNNN-cells property is 2 then len is 8
+ *     otherwise len is 4
+ */
+static int get_cells_len(void *blob, char *nr_cells_name)
 {
-	int err, nodeoffset, len = 0;
-	u8 tmp[16];
-	const u32 *addrcell, *sizecell;
+	const u32 *cell;
+
+	cell = fdt_getprop(blob, 0, nr_cells_name, NULL);
+	if (cell && *cell == 2)
+		return 8;
+
+	return 4;
+}
+
+/*
+ * Write a 4 or 8 byte big endian cell
+ */
+static void write_cell(u8 *addr, u64 val, int size)
+{
+	int shift = (size - 1) * 8;
+	while (size-- > 0) {
+		*addr++ = (val >> shift) & 0xff;
+		shift -= 8;
+	}
+}
+
+int fdt_fixup_memory_banks(void *blob, u64 start[], u64 size[], int banks)
+{
+	int err, nodeoffset;
+	int addr_cell_len, size_cell_len, len;
+	u8 tmp[banks * 8];
+	int bank;
 
 	err = fdt_check_header(blob);
 	if (err < 0) {
@@ -389,44 +418,15 @@ int fdt_fixup_memory(void *blob, u64 start, u64 size)
 		return err;
 	}
 
-	addrcell = fdt_getprop(blob, 0, "#address-cells", NULL);
-	/* use shifts and mask to ensure endianness */
-	if ((addrcell) && (*addrcell == 2)) {
-		tmp[0] = (start >> 56) & 0xff;
-		tmp[1] = (start >> 48) & 0xff;
-		tmp[2] = (start >> 40) & 0xff;
-		tmp[3] = (start >> 32) & 0xff;
-		tmp[4] = (start >> 24) & 0xff;
-		tmp[5] = (start >> 16) & 0xff;
-		tmp[6] = (start >>  8) & 0xff;
-		tmp[7] = (start      ) & 0xff;
-		len = 8;
-	} else {
-		tmp[0] = (start >> 24) & 0xff;
-		tmp[1] = (start >> 16) & 0xff;
-		tmp[2] = (start >>  8) & 0xff;
-		tmp[3] = (start      ) & 0xff;
-		len = 4;
-	}
+	addr_cell_len = get_cells_len(blob, "#address-cells");
+	size_cell_len = get_cells_len(blob, "#size-cells");
 
-	sizecell = fdt_getprop(blob, 0, "#size-cells", NULL);
-	/* use shifts and mask to ensure endianness */
-	if ((sizecell) && (*sizecell == 2)) {
-		tmp[0+len] = (size >> 56) & 0xff;
-		tmp[1+len] = (size >> 48) & 0xff;
-		tmp[2+len] = (size >> 40) & 0xff;
-		tmp[3+len] = (size >> 32) & 0xff;
-		tmp[4+len] = (size >> 24) & 0xff;
-		tmp[5+len] = (size >> 16) & 0xff;
-		tmp[6+len] = (size >>  8) & 0xff;
-		tmp[7+len] = (size      ) & 0xff;
-		len += 8;
-	} else {
-		tmp[0+len] = (size >> 24) & 0xff;
-		tmp[1+len] = (size >> 16) & 0xff;
-		tmp[2+len] = (size >>  8) & 0xff;
-		tmp[3+len] = (size      ) & 0xff;
-		len += 4;
+	for (bank = 0, len = 0; bank < banks; bank++) {
+		write_cell(tmp + len, start[bank], addr_cell_len);
+		len += addr_cell_len;
+
+		write_cell(tmp + len, size[bank], size_cell_len);
+		len += size_cell_len;
 	}
 
 	err = fdt_setprop(blob, nodeoffset, "reg", tmp, len);
@@ -436,6 +436,11 @@ int fdt_fixup_memory(void *blob, u64 start, u64 size)
 		return err;
 	}
 	return 0;
+}
+
+int fdt_fixup_memory(void *blob, u64 start, u64 size)
+{
+	return fdt_fixup_memory_banks(blob, &start, &size, 1);
 }
 
 void fdt_fixup_ethernet(void *fdt)
@@ -473,6 +478,52 @@ void fdt_fixup_ethernet(void *fdt)
 		sprintf(mac, "eth%daddr", ++i);
 	}
 }
+
+#ifdef CONFIG_DMAMEM
+void fdt_fixup_dmamem(void *fdt)
+{
+	/*
+	 * By default assume param values specified in U-Boot config
+	 */
+	u32 mem_adr = CONFIG_DMAMEM_BASE;
+	u32 mem_sz = CONFIG_DMAMEM_SZ_ALL;
+	u32 fb_sz = CONFIG_DMAMEM_SZ_FB;
+	const u32 *val;
+	int node;
+
+	node = fdt_path_offset(fdt, "/dmamem");
+	if (node < 0) {
+		/*
+		 * The device-tree file does not include 'dmamem' node.
+		 * Create it, and fill with U-Boot params
+		 */
+		node = fdt_add_subnode(fdt, 0, "dmamem");
+		if (node < 0)
+			goto out;
+		fdt_setprop_string(fdt, node, "compatible", "dmamem");
+		fdt_setprop_cell(fdt, node, "base-addr", mem_adr);
+		fdt_setprop_cell(fdt, node, "full-size", mem_sz);
+		fdt_setprop_cell(fdt, node, "fb-size", fb_sz);
+		goto out;
+	}
+
+	/*
+	 * Get params from device-tree
+	 */
+	val = fdt_getprop(fdt, node, "base-addr", NULL);
+	if (val)
+		mem_adr = fdt32_to_cpu(*val);
+	val = fdt_getprop(fdt, node, "full-size", NULL);
+	if (val)
+		mem_sz = fdt32_to_cpu(*val);
+out:
+	/*
+	 * Configure the dmamem area if it's not empty
+	 */
+	if (mem_sz)
+		dmamem_init(mem_adr, mem_sz);
+}
+#endif
 
 #ifdef CONFIG_HAS_FSL_DR_USB
 void fdt_fixup_dr_usb(void *blob, bd_t *bd)

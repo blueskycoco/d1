@@ -222,6 +222,7 @@ LIBS += drivers/pci/libpci.a
 LIBS += drivers/pcmcia/libpcmcia.a
 LIBS += drivers/power/libpower.a
 LIBS += drivers/spi/libspi.a
+LIBS += drivers/switch/libswitch.a
 ifeq ($(CPU),mpc83xx)
 LIBS += drivers/qe/qe.a
 endif
@@ -3245,9 +3246,33 @@ stm-som-1a_config : unconfig
 		}
 	@$(MKCONFIG) -a stm-som arm arm_cortexm3 stm-som emcraft stm32
 
+stm32f7-som-64_config \
+stm32f7-som-64-ext-bsb_config \
+stm32f7-som_config \
+stm32f7-som-ext-bsb_config: unconfig
+	@if [ "$(findstring ext-bsb, $@)" ] ; then \
+		echo "...for EXT-BSB" ; \
+	else				\
+		echo "#define CONFIG_SYS_BOARD_UCL_BSB" >>$(obj)include/config.h ; \
+		echo "...for UCL-BSB" ; \
+	fi;
+	@if [ "$(findstring 64, $@)" ] ; then \
+		echo "...for 64MB SDRAM variant" ; \
+		echo "#define CONFIG_SYS_RAM_SIZE (64 * 1024 * 1024)" >> \
+		$(obj)include/config.h ; \
+	fi;
+	@$(MKCONFIG) -a stm32f7-som arm arm_cortexm3 stm32f7-som emcraft stm32
+
 stm32f429-discovery_config : unconfig
 	@$(MKCONFIG) $(@:_config=) arm arm_cortexm3 stm32f429-discovery \
 	stm stm32
+
+stm32f746-discovery_config : unconfig
+	@$(MKCONFIG) $(@:_config=) arm arm_cortexm3 stm32f746-discovery \
+	stm stm32
+
+stm32f769i-discovery_config : unconfig
+	@$(MKCONFIG) $(@:_config=) arm arm_cortexm3 stm32f7-som emcraft stm32
 
 stm3220g-eval_config : unconfig
 	@$(MKCONFIG) $(@:_config=) arm arm_cortexm3 stm3220g-eval stm stm32
@@ -3305,6 +3330,9 @@ m2s-som_config :  unconfig
 
 
 m2s-fg484-som_config :  unconfig
+	@$(MKCONFIG) $(@:_config=) arm arm_cortexm3 m2s-fg484-som emcraft m2s
+
+sf2plus_config :  unconfig
 	@$(MKCONFIG) $(@:_config=) arm arm_cortexm3 m2s-fg484-som emcraft m2s
 
 m2s-som-copy2_config :  unconfig

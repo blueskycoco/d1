@@ -48,10 +48,19 @@ void do_fixup_by_compat(void *fdt, const char *compat,
 void do_fixup_by_compat_u32(void *fdt, const char *compat,
 			    const char *prop, u32 val, int create);
 int fdt_fixup_memory(void *blob, u64 start, u64 size);
+int fdt_fixup_memory_banks(void *blob, u64 start[], u64 size[], int banks);
 void fdt_fixup_ethernet(void *fdt);
 int fdt_find_and_setprop(void *fdt, const char *node, const char *prop,
 			 const void *val, int len, int create);
 void fdt_fixup_qe_firmware(void *fdt);
+
+#ifdef CONFIG_DMAMEM
+void fdt_fixup_dmamem(void *fdt);
+#endif
+
+#ifdef CONFIG_SWITCH
+void fdt_fixup_switch(void *fdt);
+#endif
 
 #ifdef CONFIG_HAS_FSL_DR_USB
 void fdt_fixup_dr_usb(void *blob, bd_t *bd);

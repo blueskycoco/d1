@@ -63,9 +63,9 @@
 #define CONFIG_DISPLAY_BOARDINFO	1
 
 #if CONFIG_SYS_BOARD_REV == 0x2A
-# define CONFIG_SYS_BOARD_REV_STR	"Rev 2.A"
+# define CONFIG_SYS_BOARD_REV_STR	"2.A"
 #elif CONFIG_SYS_BOARD_REV == 0x1A
-# define CONFIG_SYS_BOARD_REV_STR	"Rev 1.A"
+# define CONFIG_SYS_BOARD_REV_STR	"1.A"
 #endif
 
 /*
@@ -86,15 +86,15 @@
  * Clock configuration (see mach-stm32/clock.c for details):
  * - use PLL as the system clock;
  * - use HSE as the PLL source;
- * - configure PLL to get 168MHz system clock.
+ * - configure PLL to get 180MHz system clock.
  */
 #define CONFIG_STM32_SYS_CLK_PLL
 #define CONFIG_STM32_PLL_SRC_HSE
 #define CONFIG_STM32_HSE_HZ		12000000	/* 12 MHz */
-#define CONFIG_STM32_PLL_M		12
-#define CONFIG_STM32_PLL_N		336
-#define CONFIG_STM32_PLL_P		2
-#define CONFIG_STM32_PLL_Q		7
+#define CONFIG_STM32_PLL_M		6
+#define CONFIG_STM32_PLL_N		360
+#define CONFIG_STM32_PLL_P		4
+#define CONFIG_STM32_PLL_Q		15
 
 /*
  * Number of clock ticks in 1 sec
@@ -116,6 +116,14 @@
  */
 #define CONFIG_MEM_NVM_BASE		0x00000000
 #define CONFIG_MEM_NVM_LEN		(1024 * 1024 * 2)
+#define CONFIG_MEM_NVM_BASE		0x00000000
+#define CONFIG_MEM_NVM_LEN		(1024 * 1024 * 2)
+#define CONFIG_ENVM			1
+#if defined(CONFIG_ENVM)
+# define CONFIG_SYS_ENVM_BASE		0x08000000
+# define CONFIG_SYS_ENVM_LEN		CONFIG_MEM_NVM_LEN
+#endif
+
 
 #define CONFIG_MEM_RAM_BASE		0x20000000
 #define CONFIG_MEM_RAM_LEN		(20 * 1024)
@@ -180,13 +188,14 @@
 /*
  * Flash timinigs are almost same for write and read.
  * See Spansion memory reference manual for S29GL128S10DHI010
- * tACC(MAX) = ADDSET(3-0) = 110 ns = 18.48 HCLK (on 168 MHz)
- * tRC(MIN) = DATAST(15-8) = 110 ns = 18.48 HCLK (on 168 MHz)
- * tNE switch = BUSTURN(19-16) = 10 ns = 2 HCLK
+ * ns <-> HCLK below assumes 180 MHz System Clock
+ * tACC(MAX) = ADDSET(3-0) = 110 ns = 19.8 HCLK
+ * tRC(MIN) = DATAST(15-8) = 110 ns = 19.8 HCLK
+ * tNE switch = BUSTURN(19-16) = 10 ns = 1.8 HCLK
  * ACCMODE(29-28) = 0x2 (mode C)
  */
-#define CONFIG_SYS_FSMC_FLASH_BTR	0x2002120f
-#define CONFIG_SYS_FSMC_FLASH_BWTR	0x2002110f
+#define CONFIG_SYS_FSMC_FLASH_BTR	0x2002140f
+#define CONFIG_SYS_FSMC_FLASH_BWTR	0x2002130f
 #define CONFIG_FSMC_NOR_PSRAM_CS2_ENABLE
 
 #define CONFIG_SYS_FLASH_BANK1_BASE	FSMC_NOR_PSRAM_CS_ADDR(CONFIG_SYS_FLASH_CS)
@@ -208,9 +217,18 @@
 /*
  * Store env in Flash memory
  */
-#define CONFIG_ENV_IS_IN_FLASH
+#if 0
+# define CONFIG_ENV_IS_IN_ENVM
+#else
+# define CONFIG_ENV_IS_IN_FLASH
+#endif
 #define CONFIG_ENV_SIZE			(4 * 1024)
-#define CONFIG_ENV_ADDR			CONFIG_SYS_FLASH_BANK1_BASE
+#if defined(CONFIG_ENV_IS_IN_ENVM)
+# define CONFIG_ENV_ADDR 		\
+	(CONFIG_SYS_ENVM_BASE + (128 * 1024))
+#else
+# define CONFIG_ENV_ADDR		CONFIG_SYS_FLASH_BANK1_BASE
+#endif
 #define CONFIG_INFERNO			1
 #define CONFIG_ENV_OVERWRITE		1
 
@@ -252,6 +270,7 @@
 #define CONFIG_NET_MULTI
 #define CONFIG_STM32_ETH
 #define CONFIG_STM32_ETH_RMII
+#define CONFIG_KSZ8081_RMII_FORCE
 
 /*
  * Ethernet RX buffers are malloced from the internal SRAM (more precisely,
@@ -295,6 +314,59 @@
 #define CONFIG_MONITOR_IS_IN_RAM	1
 
 /*
+ * Framebuffer configuration
+ */
+#undef CONFIG_LCD
+
+#ifdef CONFIG_LCD
+
+#define CONFIG_DMAMEM
+#if defined(CONFIG_DMAMEM)
+/* Memory for framebuffer: 32-bit 480x272 */
+#define CONFIG_DMAMEM_SZ_ALL	0x80000
+#define CONFIG_DMAMEM_SZ_FB	CONFIG_DMAMEM_SZ_ALL
+#define CONFIG_DMAMEM_BASE	(CONFIG_SYS_RAM_BASE + \
+				CONFIG_SYS_RAM_SIZE - \
+				CONFIG_DMAMEM_SZ_ALL)
+
+#define CONFIG_FB_ADDR		CONFIG_DMAMEM_BASE
+#endif /* CONFIG_DMAMEM */
+
+#define CONFIG_VIDEO_STM32F4_LTDC
+#define CONFIG_STM32_LTDC_PIXCLK	(9 * 1000 * 1000)
+#define LCD_EMCRAFT_IOT_LCD
+
+#define CONFIG_SPLASH_SCREEN
+#define CONFIG_SPLASH_SCREEN_ALIGN
+
+#define CONFIG_MTD_SPLASH_PART_START	0x40000
+#define CONFIG_MTD_SPLASH_PART_LEN	0x80000
+
+#define CONFIG_BMP
+#undef CONFIG_CMD_BMP
+#define CONFIG_BMP_24BPP
+#define LCD_BPP		LCD_COLOR32
+
+#ifdef LCD_EMCRAFT_IOT_LCD
+# define CONFIG_STM32F4_LTDC_XRES	480
+# define CONFIG_STM32F4_LTDC_YRES	272
+# define CONFIG_STM32F4_LTDC_BPP	LCD_BPP
+
+# define CONFIG_STM32F4_LTDC_LEFT_MARGIN	2
+# define CONFIG_STM32F4_LTDC_HSYNC_LEN		41
+# define CONFIG_STM32F4_LTDC_RIGHT_MARGIN	2
+
+# define CONFIG_STM32F4_LTDC_UPPER_MARGIN	2
+# define CONFIG_STM32F4_LTDC_VSYNC_LEN		10
+# define CONFIG_STM32F4_LTDC_LOWER_MARGIN	2
+
+#elif defined(CONFIG_VIDEO_STM32F4_LTDC)
+# error "STM32F4x9 LTDC is enabled but no LCD configured"
+#endif
+
+#endif /* CONFIG_LCD */
+
+/*
  * Enable all those monitor commands that are needed
  */
 #include <config_cmd_default.h>
@@ -326,7 +398,7 @@
 /*
  * Max number of command args
  */
-#define CONFIG_SYS_MAXARGS		16
+#define CONFIG_SYS_MAXARGS		48
 
 /*
  * Auto-boot sequence configuration
@@ -341,10 +413,19 @@
 # define CONFIG_BOOTARGS	"stm32_platform=stm32f4x9-som "\
 				"console=ttyS0,115200 panic=10"
 
-# define LOADADDR		"0xC0007FC0"
+/*
+ * These are the good addresses to get Image data right at the 'Load Address'
+ * (0xC0008000), and thus avoid additional uImage relocation:
+ * - linux-2.6: 0xC0007FC0 (reserve place for uImage header)
+ * - linux-4.2: 0xC0007FB4 (reserve place for 2-files multi-image header)
+ */
+# define LOADADDR		"0xC0007FB4"
 
-# define REV_EXTRA_ENV		\
-	"flashboot=run addip;"						\
+# define REV_EXTRA_ENV							\
+	"envmboot=run args addip;bootm ${envmaddr}\0"			\
+	"envmupdate=tftp ${image};"					\
+		"cptf ${envmaddr} ${loadaddr} ${filesize}\0"		\
+	"flashboot=run args addip;"					\
 		"stmbufcopy ${loadaddr} ${flashaddr} ${kernelsize};"	\
 		"bootm ${loadaddr}\0"					\
 	"update=tftp ${image};"						\
@@ -363,7 +444,7 @@
 
 # define LOADADDR		"0x60000000"
 # define REV_EXTRA_ENV		\
-	"flashboot=run addip;bootm ${flashaddr}\0"		\
+	"flashboot=run args addip;bootm ${flashaddr}\0"		\
 	"update=tftp ${image};"					\
 		"prot off ${flashaddr} +${filesize};"		\
 		"era ${flashaddr} +${filesize};"		\
@@ -378,14 +459,16 @@
  */
 #define CONFIG_EXTRA_ENV_SETTINGS				\
 	"loadaddr=" LOADADDR "\0"				\
+	"args=setenv bootargs " CONFIG_BOOTARGS "\0"		\
 	"addip=setenv bootargs ${bootargs} ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}:eth0:off\0"				\
 	"flashaddr=64020000\0"					\
+	"envmaddr=08040000\0"					\
 	"ethaddr=C0:B1:3C:88:88:85\0"				\
 	"ipaddr=172.17.4.206\0"					\
 	"serverip=172.17.0.1\0"					\
 	"image=stm32f4x9/uImage\0"		\
 	"stdin=serial\0"					\
-	"netboot=tftp ${image};run addip;bootm\0"		\
+	"netboot=tftp ${image};run args addip;bootm\0"		\
 	REV_EXTRA_ENV
 
 /*
@@ -393,5 +476,12 @@
  */
 #define CONFIG_SETUP_MEMORY_TAGS
 #define CONFIG_CMDLINE_TAG
+
+/*
+ * Enable support for booting with FDT
+ */
+#define CONFIG_OF_LIBFDT
+#define CONFIG_OF_FORCE_RELOCATE
+#define CONFIG_SYS_BOOTMAPSZ		CONFIG_SYS_RAM_SIZE
 
 #endif /* __CONFIG_H */

@@ -45,9 +45,9 @@
 /* Timeouts */
 #define NFC_RESET_TIMEOUT	1000		/* 1 ms */
 #define NFC_TIMEOUT		5000	/* 1/10 s */
-#define ECC_SRAM_ADDR	0x100
-#define ECC_STATUS_MASK	0x80
-#define ECC_ERR_COUNT	0x3F
+#define ECC_SRAM_ADDR		(0x840 >> 3)
+#define ECC_STATUS_MASK		0x80
+#define ECC_ERR_COUNT		0x3F
 
 #ifndef MIN
 #define MIN(x, y)		((x < y) ? x : y)
@@ -74,40 +74,17 @@ int fsl_nfc_chip;
 static int get_status;
 static int get_id;
 
-static u8 bbt_pattern[] = {'B', 'b', 't', '0' };
-static u8 mirror_pattern[] = {'1', 't', 'b', 'B' };
-
-static struct nand_bbt_descr bbt_main_descr = {
-	.options = NAND_BBT_LASTBLOCK | NAND_BBT_CREATE | NAND_BBT_WRITE |
-		   NAND_BBT_2BIT | NAND_BBT_VERSION,
-	.offs =	11,
-	.len = 4,
-	.veroffs = 15,
-	.maxblocks = 4,
-	.pattern = bbt_pattern,
-};
-
-static struct nand_bbt_descr bbt_mirror_descr = {
-	.options = NAND_BBT_LASTBLOCK | NAND_BBT_CREATE | NAND_BBT_WRITE |
-		   NAND_BBT_2BIT | NAND_BBT_VERSION,
-	.offs =	11,
-	.len = 4,
-	.veroffs = 15,
-	.maxblocks = 4,
-	.pattern = mirror_pattern,
-};
-
 static struct nand_ecclayout fsl_nfc_ecc45 = {
 	.eccbytes = 45,
-	.eccpos = {19, 20, 21, 22, 23,
+	.eccpos = {16, 17, 20, 21, 22, 23,
 		   24, 25, 26, 27, 28, 29, 30, 31,
 		   32, 33, 34, 35, 36, 37, 38, 39,
 		   40, 41, 42, 43, 44, 45, 46, 47,
 		   48, 49, 50, 51, 52, 53, 54, 55,
 		   56, 57, 58, 59, 60, 61, 62, 63},
 	.oobfree = {
-		{.offset = 8,
-		.length = 11} }
+		{.offset = 4,
+		.length = 8} }
 };
 
 static inline u32 nfc_read(struct mtd_info *mtd, uint reg)
@@ -182,7 +159,7 @@ static void fsl_nfc_done(struct mtd_info *mtd)
 
 	start = get_timer(0);
 
-	while (!nfc_get_field(mtd, NFC_IRQ_STATUS, CMD_DONE_IRQ_MASK)) {
+	while (!nfc_get_field(mtd, NFC_IRQ_STATUS, IDLE_IRQ_MASK)) {
 		if (get_timer(start) > NFC_TIMEOUT) {
 			printf("Timeout while waiting for BUSY.\n");
 			break;
@@ -337,11 +314,6 @@ fsl_nfc_command(struct mtd_info *mtd, unsigned command,
 		CONFIG_ECC_MODE_MASK,
 		CONFIG_ECC_MODE_SHIFT, ECC_45_BYTE);
 
-	if (!(page % 0x40)) {
-		nfc_set_field(mtd, NFC_FLASH_CONFIG,
-			CONFIG_ECC_MODE_MASK,
-			CONFIG_ECC_MODE_SHIFT, ECC_BYPASS);
-	}
 
 	switch (command) {
 	case NAND_CMD_PAGEPROG:
@@ -690,7 +662,8 @@ int board_nand_init(struct nand_chip *chip)
 	chip->read_buf = fsl_nfc_read_buf;
 	chip->write_buf = fsl_nfc_write_buf;
 	chip->verify_buf = fsl_nfc_verify_buf;
-	chip->options = NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT | NAND_CACHEPRG;
+	chip->options = NAND_NO_AUTOINCR | NAND_USE_FLASH_BBT | NAND_CACHEPRG |
+		NAND_USE_FLASH_BBT_NO_OOB;
 #ifndef CONFIG_NAND_FSL_NFC_BUSWIDTH_8
 	chip->options |= NAND_BUSWIDTH_16;
 #endif
@@ -733,10 +706,6 @@ int board_nand_init(struct nand_chip *chip)
 				CONFIG_ECC_MODE_MASK,
 				CONFIG_ECC_MODE_SHIFT, ECC_BYPASS);
 	}
-	chip->bbt_td = &bbt_main_descr;
-	chip->bbt_md = &bbt_mirror_descr;
-	bbt_main_descr.pattern = bbt_pattern;
-	bbt_mirror_descr.pattern = mirror_pattern;
 
 	/* SET SECTOR SIZE */
 	nfc_write(mtd, NFC_SECTOR_SIZE, PAGE_2K | PAGE_64);

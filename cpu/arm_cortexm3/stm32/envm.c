@@ -23,29 +23,31 @@
 
 #include <common.h>
 #include <errno.h>
+#include <asm/cache.h>
+
 #include "envm.h"
 
-/*
- * Flash data area definitions
- */
-#define STM32_FLASH_BASE		0x08000000
-#if defined(CONFIG_SYS_STM32F43X)
-#define STM32_FLASH_SIZE	        (1024 * 1024 * 2)
-#else
-#define STM32_FLASH_SIZE	        (1024 * 1024 * 1)
-#endif
 /*
  * This array defines the layout of the Embedded Flash on the STM32 chips
  */
 static u32 flash_bsize[] = {
+#if defined(CONFIG_SYS_STM32F7)
+	[0 ... 3]	=  32 * 1024,
+	[4]		= 128 * 1024,
+	[5 ... 7]	= 256 * 1024,
+#if defined(CONFIG_SYS_STM32F76xxx) || defined(CONFIG_SYS_STM32F77xxx)
+	[8 ... 11]	= 256 * 1024,
+#endif
+#else
 	[0 ... 3]	=  16 * 1024,
 	[4]		=  64 * 1024,
 	[5 ... 11]	= 128 * 1024
-#if defined(CONFIG_SYS_STM32F43X)
+# if defined(CONFIG_SYS_STM32F43X)
 	,
 	[12 ... 15]	=  16 * 1024,
 	[16]		=  64 * 1024,
 	[17 ... 23]	= 128 * 1024
+# endif
 #endif
 	};
 
@@ -146,7 +148,7 @@ stm32_flash_cr_lock(void)
 static s32 stm32_flash_get_block(u8 *addr)
 {
 	s32 i = 0;
-	u8 *base = (u8 *)STM32_FLASH_BASE;
+	u8 *base = (u8 *)CONFIG_MEM_NVM_BASE;
 
 	while (i < STM32_FLASH_BLOCKS) {
 		if (addr == base)
@@ -261,6 +263,7 @@ stm32_flash_program(u32 offset, void *buf, u32 size)
 		while (STM32_FLASH_REGS->sr & STM32_FLASH_SR_BSY)
 			;
 	}
+
 	STM32_FLASH_REGS->cr &= ~STM32_FLASH_CR_PG;
 	stm32_flash_cr_lock();
 
@@ -311,9 +314,12 @@ envm_write(u32 offset, void * buf, u32 size)
 {
 	s32 ret = 0;
 
+#if defined(CONFIG_STM32F7_DCACHE_ON) || defined(CONFIG_STM32F7_ICACHE_ON)
+	stm32f7_envm_as_dev();
+#endif
 	/* Basic sanity check. More checking in the "get_block" routine */
-	if ((offset < STM32_FLASH_BASE) ||
-		((offset + size) > (STM32_FLASH_BASE + STM32_FLASH_SIZE))) {
+	if ((offset < CONFIG_MEM_NVM_BASE) ||
+		((offset + size) > (CONFIG_MEM_NVM_BASE + CONFIG_MEM_NVM_LEN))) {
 		printf("%s: Address %#x is not in flash"
 			" or size %d is too big\n",
 			__func__, offset, size);
@@ -326,5 +332,8 @@ envm_write(u32 offset, void * buf, u32 size)
 
 	ret = size;
 xit:
+#if defined(CONFIG_STM32F7_DCACHE_ON) || defined(CONFIG_STM32F7_ICACHE_ON)
+	stm32f7_envm_as_dev();
+#endif
 	return ret;
 }

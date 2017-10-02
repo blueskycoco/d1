@@ -26,6 +26,9 @@
 #include <image.h>
 #include <u-boot/zlib.h>
 #include <asm/byteorder.h>
+#include <fdt.h>
+#include <libfdt.h>
+#include <fdt_support.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -35,7 +38,8 @@ DECLARE_GLOBAL_DATA_PTR;
     defined (CONFIG_SERIAL_TAG) || \
     defined (CONFIG_REVISION_TAG) || \
     defined (CONFIG_VFD) || \
-    defined (CONFIG_LCD)
+    defined (CONFIG_LCD) || \
+    defined (CONFIG_DMAMEM)
 static void setup_start_tag (bd_t *bd);
 
 # ifdef CONFIG_SETUP_MEMORY_TAGS
@@ -49,19 +53,70 @@ static void setup_initrd_tag (bd_t *bd, ulong initrd_start,
 # endif
 static void setup_end_tag (bd_t *bd);
 
-# if defined (CONFIG_VFD) || defined (CONFIG_LCD)
+# if defined (CONFIG_SETUP_VIDEOLFB_TAG) && (defined (CONFIG_VFD) || defined (CONFIG_LCD))
 static void setup_videolfb_tag (gd_t *gd);
+# endif
+
+# ifdef CONFIG_DMAMEM
+static void setup_dmamem_tag (void);
 # endif
 
 static struct tag *params;
 #endif /* CONFIG_SETUP_MEMORY_TAGS || CONFIG_CMDLINE_TAG || CONFIG_INITRD_TAG */
+
+static ulong get_sp(void);
+#if defined(CONFIG_OF_LIBFDT)
+static int bootm_linux_fdt(int machid, bootm_headers_t *images);
+#endif
+
+void arch_lmb_reserve(struct lmb *lmb)
+{
+	ulong sp;
+
+	/*
+	 * Booting a (Linux) kernel image
+	 *
+	 * Allocate space for command line and board info - the
+	 * address should be as high as possible within the reach of
+	 * the kernel (see CONFIG_SYS_BOOTMAPSZ settings), but in unused
+	 * memory, which means far enough below the current stack
+	 * pointer.
+	 */
+	sp = get_sp();
+	debug("## Current stack ends at 0x%08lx ", sp);
+
+	/* adjust sp by 1K to be safe */
+	sp -= 1024;
+
+	/*
+	 * Skip reservation if our stack is not in external RAM
+	 */
+	if (sp >= gd->bd->bi_dram[0].start &&
+	    sp <  gd->bd->bi_dram[0].start + gd->bd->bi_dram[0].size) {
+		lmb_reserve(lmb, sp, gd->bd->bi_dram[0].start +
+			    gd->bd->bi_dram[0].size - sp);
+	}
+}
+
+static void announce_and_cleanup(void)
+{
+	printf("\nStarting kernel ...\n\n");
+
+#ifdef CONFIG_USB_DEVICE
+	{
+		extern void udc_disconnect(void);
+		udc_disconnect();
+	}
+#endif
+	cleanup_before_linux();
+}
 
 int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 {
 	bd_t	*bd = gd->bd;
 	char	*s;
 	int	machid = bd->bi_arch_number;
-	void	(*theKernel)(int zero, int arch, uint params);
+	void	(*kernel_entry)(int zero, int arch, uint params);
 
 #ifdef CONFIG_CMDLINE_TAG
 	char *commandline = getenv ("bootargs");
@@ -69,8 +124,6 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 
 	if ((flag != 0) && (flag != BOOTM_STATE_OS_GO))
 		return 1;
-
-	theKernel = (void (*)(int, int, uint))images->ep;
 
 	s = getenv ("machid");
 	if (s) {
@@ -80,8 +133,15 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 
 	show_boot_progress (15);
 
+#ifdef CONFIG_OF_LIBFDT
+	if (images->ft_len)
+		return bootm_linux_fdt(machid, images);
+#endif
+
+	kernel_entry = (void (*)(int, int, uint))images->ep;
+
 	debug ("## Transferring control to Linux (at address %08lx) ...\n",
-	       (ulong) theKernel);
+	       (ulong) kernel_entry);
 
 #if defined (CONFIG_SETUP_MEMORY_TAGS) || \
     defined (CONFIG_CMDLINE_TAG) || \
@@ -89,7 +149,8 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
     defined (CONFIG_SERIAL_TAG) || \
     defined (CONFIG_REVISION_TAG) || \
     defined (CONFIG_LCD) || \
-    defined (CONFIG_VFD)
+    defined (CONFIG_VFD) || \
+    defined (CONFIG_DMAMEM)
 	setup_start_tag (bd);
 #ifdef CONFIG_SERIAL_TAG
 	setup_serial_tag (&params);
@@ -107,30 +168,87 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
 	if (images->rd_start && images->rd_end)
 		setup_initrd_tag (bd, images->rd_start, images->rd_end);
 #endif
-#if defined (CONFIG_VFD) || defined (CONFIG_LCD)
+#if defined (CONFIG_SETUP_VIDEOLFB_TAG) && (defined (CONFIG_VFD) || defined (CONFIG_LCD))
 	setup_videolfb_tag ((gd_t *) gd);
 #endif
-	setup_end_tag (bd);
+#ifdef CONFIG_DMAMEM
+	setup_dmamem_tag();
+#endif
+	setup_end_tag(bd);
 #endif
 
-	/* we assume that the kernel is in place */
-	printf ("\nStarting kernel ...\n\n");
+	announce_and_cleanup();
 
-#ifdef CONFIG_USB_DEVICE
-	{
-		extern void udc_disconnect (void);
-		udc_disconnect ();
-	}
-#endif
-
-	cleanup_before_linux ();
-
-	theKernel (0, machid, bd->bi_boot_params);
+	kernel_entry(0, machid, bd->bi_boot_params);
 	/* does not return */
 
 	return 1;
 }
 
+#if defined(CONFIG_OF_LIBFDT)
+static int fixup_memory_node(void *blob)
+{
+	bd_t	*bd = gd->bd;
+	int bank;
+	u64 start[CONFIG_NR_DRAM_BANKS];
+	u64 size[CONFIG_NR_DRAM_BANKS];
+
+	for (bank = 0; bank < CONFIG_NR_DRAM_BANKS; bank++) {
+		start[bank] = bd->bi_dram[bank].start;
+		size[bank] = bd->bi_dram[bank].size;
+	}
+
+	return fdt_fixup_memory_banks(blob, start, size, CONFIG_NR_DRAM_BANKS);
+}
+
+static int bootm_linux_fdt(int machid, bootm_headers_t *images)
+{
+	ulong rd_len;
+	void (*kernel_entry)(int zero, int dt_machid, void *dtblob);
+	ulong bootmap_base = getenv_bootm_low();
+	ulong of_size = images->ft_len;
+	char **of_flat_tree = &images->ft_addr;
+	ulong *initrd_start = &images->initrd_start;
+	ulong *initrd_end = &images->initrd_end;
+	struct lmb *lmb = &images->lmb;
+	int ret;
+
+	kernel_entry = (void (*)(int, int, void *))images->ep;
+
+	rd_len = images->rd_end - images->rd_start;
+	ret = boot_ramdisk_high(lmb, images->rd_start, rd_len,
+				initrd_start, initrd_end);
+	if (ret)
+		return ret;
+
+	ret = boot_relocate_fdt(lmb, bootmap_base, of_flat_tree, &of_size);
+	if (ret)
+		return ret;
+
+	debug("## Transferring control to Linux (at address %08lx) ...\n",
+	       (ulong) kernel_entry);
+
+	fdt_chosen(*of_flat_tree, 1);
+
+	fixup_memory_node(*of_flat_tree);
+	fdt_fixup_ethernet(*of_flat_tree);
+#ifdef CONFIG_DMAMEM
+	fdt_fixup_dmamem(*of_flat_tree);
+#endif
+#ifdef CONFIG_SWITCH
+	fdt_fixup_switch(*of_flat_tree);
+#endif
+
+	fdt_initrd(*of_flat_tree, *initrd_start, *initrd_end, 1);
+
+	announce_and_cleanup();
+
+	kernel_entry(0, machid, *of_flat_tree);
+	/* does not return */
+
+	return 1;
+}
+#endif
 
 #if defined (CONFIG_SETUP_MEMORY_TAGS) || \
     defined (CONFIG_CMDLINE_TAG) || \
@@ -231,7 +349,7 @@ static void setup_initrd_tag (bd_t *bd, ulong initrd_start, ulong initrd_end)
 #endif /* CONFIG_INITRD_TAG */
 
 
-#if defined (CONFIG_VFD) || defined (CONFIG_LCD)
+#if defined (CONFIG_SETUP_VIDEOLFB_TAG) && (defined (CONFIG_VFD) || defined (CONFIG_LCD))
 extern ulong calc_fbsize (void);
 static void setup_videolfb_tag (gd_t *gd)
 {
@@ -285,11 +403,33 @@ void setup_revision_tag(struct tag **in_params)
 }
 #endif  /* CONFIG_REVISION_TAG */
 
+#ifdef CONFIG_DMAMEM
+void setup_dmamem_tag (void)
+{
+	params->hdr.tag = ATAG_DMAMEM;
+	params->hdr.size = tag_size(tag_dmamem);
+	params->u.dmamem.base = CONFIG_DMAMEM_BASE;
+	params->u.dmamem.sz_all = CONFIG_DMAMEM_SZ_ALL;
+	params->u.dmamem.sz_fb = CONFIG_DMAMEM_SZ_FB;
+	dmamem_init(params->u.dmamem.base, params->u.dmamem.sz_all);
+
+	params = tag_next(params);
+}
+#endif
+
 
 static void setup_end_tag (bd_t *bd)
 {
 	params->hdr.tag = ATAG_NONE;
 	params->hdr.size = 0;
+}
+
+static ulong get_sp(void)
+{
+	ulong ret;
+
+	asm("mov %0, sp" : "=r"(ret) : );
+	return ret;
 }
 
 #endif /* CONFIG_SETUP_MEMORY_TAGS || CONFIG_CMDLINE_TAG || CONFIG_INITRD_TAG */

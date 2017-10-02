@@ -379,8 +379,10 @@
 
 /*
  * Needed by "loadb"
+ * Set to be aligned with Linux entry point inside multi uImage
+ * (64-byte header and 12-byte data for 2 embedded images)
  */
-#define CONFIG_SYS_LOAD_ADDR		CONFIG_SYS_RAM_BASE
+#define CONFIG_SYS_LOAD_ADDR		(0x8008000 - 64 - 12)
 
 /*
  * Monitor is actually in eNVM. In terms of U-Boot, it is neither "flash",
@@ -429,9 +431,7 @@
  */
 #define CONFIG_BOOTDELAY		3
 #define CONFIG_ZERO_BOOTDELAY_CHECK
-#define CONFIG_BOOTARGS			"kinetis_platform=" \
-					CONFIG_KINETIS_PLATFORM " " \
-					"console=ttyS2,115200 panic=10"
+#define CONFIG_BOOTARGS			"console=ttymxc2,115200 panic=10"
 #define CONFIG_BOOTCOMMAND		"run flashboot"
 
 /*
@@ -444,6 +444,7 @@
  */
 #define CONFIG_EXTRA_ENV_SETTINGS				\
 	"loadaddr=0x08007fc0\0"					\
+	"args=setenv bootargs " CONFIG_BOOTARGS "\0"		\
 	"addip=setenv bootargs ${bootargs} "			\
 		"ip=${ipaddr}:${serverip}:${gatewayip}:"	\
 			"${netmask}:${hostname}:eth0:off\0"	\
@@ -451,12 +452,12 @@
 	"ipaddr=172.17.6.46\0"					\
 	"serverip=172.17.0.1\0"					\
 	"image=k70/uImage\0"					\
-	"netboot=tftp ${image};run addip;bootm\0"		\
+	"netboot=tftp ${image} && run args addip && bootm\0"		\
 	"flashaddr=00100000\0"					\
-	"flashboot=nboot ${loadaddr} 0 ${flashaddr};"		\
-		"run addip;bootm\0"				\
-	"update=tftp ${image};"					\
-		"nand erase ${flashaddr} ${filesize};"		\
+	"flashboot=nboot ${loadaddr} 0 ${flashaddr} && "		\
+		"run args addip && bootm\0"				\
+	"update=tftp ${image} && "					\
+		"nand erase ${flashaddr} ${filesize} && "		\
 		"nand write ${loadaddr} ${flashaddr} ${filesize}\0"
 
 /*
@@ -464,5 +465,14 @@
  */
 #define CONFIG_SETUP_MEMORY_TAGS
 #define CONFIG_CMDLINE_TAG
+
+#define CONFIG_SYS_HUSH_PARSER
+#define CONFIG_SYS_PROMPT_HUSH_PS2	"> "
+
+/*
+ * Enable support for booting with FDT
+ */
+#define CONFIG_OF_LIBFDT
+#define CONFIG_SYS_BOOTMAPSZ		CONFIG_SYS_RAM_SIZE
 
 #endif /* __CONFIG_H */
